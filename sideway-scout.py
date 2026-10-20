@@ -5,8 +5,6 @@ import requests
 import numpy as np
 import pandas as pd
 
-from datetime import datetime, timezone
-
 # ==================================================
 # CONFIGURATION
 # ==================================================
@@ -91,16 +89,22 @@ def fetch_coins():
 # PIONEX MARKET DATA
 # ==================================================
 def extract_rows(data):
-    if isinstance(data, list): return data
+    """
+    Secara rekursif mencari list pertama di dalam struktur JSON.
+    Diperbaiki untuk menangani respons bersarang seperti {"data": {"symbols": [...]}}.
+    """
+    if isinstance(data, list):
+        return data
     if isinstance(data, dict):
-        for key in ("data", "tickers", "symbols", "records", "items"):
-            if isinstance(data.get(key), list): return data.get(key)
-        result = data.get("result")
-        if isinstance(result, list): return result
-        if isinstance(result, dict):
-            for key in ("data", "tickers", "symbols", "records", "items"):
-                if isinstance(result.get(key), list): return result.get(key)
-    raise RuntimeError("Tidak menemukan daftar data pada respons Pionex.")
+        for key in ("symbols", "tickers", "data", "result", "records", "items"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+        for value in data.values():
+            result = extract_rows(value)
+            if result is not None:
+                return result
+    return None
 
 def get_pionex_symbols():
     return extract_rows(get_json(f"{PIONEX_BASE}/api/v1/common/symbols", params={"type": "SPOT"}))
@@ -206,7 +210,7 @@ def fetch_candles(pair, interval, limit=100):
     return df.reset_index(drop=True)
 
 # ==================================================
-# INDICATORS (WILDER'S SMOOTHING)
+# INDICATORS
 # ==================================================
 def calculate_indicators(df):
     df = df.copy()
