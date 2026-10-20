@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 # ==================================================
-# CONFIGURATION
+# CONFIGURATION (SUDAH DISESUAIKAN REALITA PASAR)
 # ==================================================
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
@@ -15,8 +15,8 @@ COIN_LIMIT = int(os.getenv("COIN_LIMIT", "500"))
 MAX_CANDLE_PAIRS = int(os.getenv("MAX_CANDLE_PAIRS", "30"))
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 
-MAX_SPREAD_PCT = 0.05
-MIN_QUOTE_VOLUME = 500_000
+MAX_SPREAD_PCT = 0.15      # Dilonggarkan dari 0.05
+MIN_QUOTE_VOLUME = 300_000 # Diturunkan dari 500k
 
 STOP_LOSS_PCT = 0.02
 TAKE_PROFIT_1_PCT = 0.02
@@ -86,24 +86,17 @@ def fetch_coins():
     return unique
 
 # ==================================================
-# PIONEX MARKET DATA
+# PIONEX MARKET DATA (FIXED RECURSIVE EXTRACT)
 # ==================================================
 def extract_rows(data):
-    """
-    Secara rekursif mencari list pertama di dalam struktur JSON.
-    Diperbaiki untuk menangani respons bersarang seperti {"data": {"symbols": [...]}}.
-    """
-    if isinstance(data, list):
-        return data
+    if isinstance(data, list): return data
     if isinstance(data, dict):
         for key in ("symbols", "tickers", "data", "result", "records", "items"):
             value = data.get(key)
-            if isinstance(value, list):
-                return value
+            if isinstance(value, list): return value
         for value in data.values():
             result = extract_rows(value)
-            if result is not None:
-                return result
+            if result is not None: return result
     return None
 
 def get_pionex_symbols():
@@ -131,6 +124,10 @@ def build_market_list(coins):
     symbols = get_pionex_symbols()
     tickers = get_pionex_tickers()
     books = get_pionex_book_tickers()
+
+    if not symbols or not tickers or not books:
+        logging.error("Gagal mengambil data dari Pionex.")
+        return []
 
     ticker_map = {normalize_symbol(x): x for x in tickers}
     book_map = {normalize_symbol(x): x for x in books}
@@ -210,7 +207,7 @@ def fetch_candles(pair, interval, limit=100):
     return df.reset_index(drop=True)
 
 # ==================================================
-# INDICATORS
+# INDICATORS (WILDER'S SMOOTHING)
 # ==================================================
 def calculate_indicators(df):
     df = df.copy()
@@ -244,7 +241,7 @@ def calculate_indicators(df):
     return df
 
 # ==================================================
-# SCOUTING RULES
+# SCOUTING RULES (RELAXED & LOGGING)
 # ==================================================
 def analyze_pair(market):
     pair = market["pair"]
@@ -257,25 +254,25 @@ def analyze_pair(market):
     values = [current["atr"], current["rsi"], current["bb_mid"], current["volume_sma"], current["atr_avg"], trend["adx"]]
     if not np.all(np.isfinite(values)): return None
 
-    if trend["adx"] > 20: return None
+    if trend["adx"] > 25: return None
 
     window = candles5.tail(48)
     support, resistance = float(window["low"].min()), float(window["high"].max())
     if support <= 0 or resistance <= support: return None
 
     range_pct = (resistance - support) / support * 100
-    if not 0.8 <= range_pct <= 6.0: return None
+    if not 1.5 <= range_pct <= 8.0: return None
 
     atr_ratio = current["atr"] / current["atr_avg"]
-    if not 0.7 <= atr_ratio <= 1.3: return None
+    if not 0.6 <= atr_ratio <= 1.5: return None
 
     if current["volume_sma"] <= 0: return None
     volume_ratio = current["volume"] / current["volume_sma"]
-    if not 0.5 <= volume_ratio <= 1.8: return None
+    if not 0.5 <= volume_ratio <= 2.0: return None
 
     if len(m5) < 25: return None
     bb_mid_change_pct = abs((m5.iloc[-1]["bb_mid"] - m5.iloc[-5]["bb_mid"]) / m5.iloc[-5]["bb_mid"]) * 100
-    if bb_mid_change_pct > 0.25: return None
+    if bb_mid_change_pct > 0.5: return None
 
     if current["bb_width"] > previous["bb_width"] * 1.25: return None
 
@@ -283,10 +280,12 @@ def analyze_pair(market):
     if entry <= 0: return None
 
     range_position = (entry - support) / (resistance - support)
-    rsi_cross_up = previous["rsi"] <= 35 and current["rsi"] > 35
+    rsi_cross_up = previous["rsi"] <= 40 and current["rsi"] > 40
     bullish_candle = current["close"] > current["open"]
 
-    if range_position > 0.25 or not rsi_cross_up or not bullish_candle: return None
+    if range_position > 0.30: return None
+    if not rsi_cross_up: return None
+    if not bullish_candle: return None
 
     stop_loss = entry * (1 - STOP_LOSS_PCT)
     take_profit_1 = entry * (1 + TAKE_PROFIT_1_PCT)
