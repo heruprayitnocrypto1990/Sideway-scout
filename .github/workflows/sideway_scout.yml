@@ -2,9 +2,9 @@ name: Crypto Scout Bot
 
 on:
   schedule:
-    # Berjalan otomatis setiap 30 menit (menit ke-0 dan ke-30)
+    # Berjalan otomatis setiap 30 menit
     - cron: '0,30 * * * *'
-  workflow_dispatch: # Memungkinkan Anda menjalankan manual lewat tombol "Run workflow"
+  workflow_dispatch: 
 
 jobs:
   run-scout:
@@ -26,10 +26,7 @@ jobs:
 
       - name: Run Scout
         env:
-          # DRY_RUN dibuat false agar benar-benar kirim ke Discord
           DRY_RUN: "false"
-          # Mengambil dari GitHub Secrets
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        # PERHATIKAN BARIS INI: Memanggil nama file Python Anda yang benar
         run: python sideway-scout.py 
