@@ -6,17 +6,17 @@ import numpy as np
 import pandas as pd
 
 # ==================================================
-# CONFIGURATION (SUDAH DISESUAIKAN REALITA PASAR)
+# CONFIGURATION
 # ==================================================
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 
 COIN_LIMIT = int(os.getenv("COIN_LIMIT", "500"))
-MAX_CANDLE_PAIRS = int(os.getenv("MAX_CANDLE_PAIRS", "30"))
+MAX_CANDLE_PAIRS = int(os.getenv("MAX_CANDLE_PAIRS", "50")) # Dinaikkan jadi 50 pair
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 
-MAX_SPREAD_PCT = 0.15      # Dilonggarkan dari 0.05
-MIN_QUOTE_VOLUME = 300_000 # Diturunkan dari 500k
+MAX_SPREAD_PCT = 0.15      
+MIN_QUOTE_VOLUME = 300_000 
 
 STOP_LOSS_PCT = 0.02
 TAKE_PROFIT_1_PCT = 0.02
@@ -86,7 +86,7 @@ def fetch_coins():
     return unique
 
 # ==================================================
-# PIONEX MARKET DATA (FIXED RECURSIVE EXTRACT)
+# PIONEX MARKET DATA
 # ==================================================
 def extract_rows(data):
     if isinstance(data, list): return data
@@ -126,7 +126,6 @@ def build_market_list(coins):
     books = get_pionex_book_tickers()
 
     if not symbols or not tickers or not books:
-        logging.error("Gagal mengambil data dari Pionex.")
         return []
 
     ticker_map = {normalize_symbol(x): x for x in tickers}
@@ -207,7 +206,7 @@ def fetch_candles(pair, interval, limit=100):
     return df.reset_index(drop=True)
 
 # ==================================================
-# INDICATORS (WILDER'S SMOOTHING)
+# INDICATORS
 # ==================================================
 def calculate_indicators(df):
     df = df.copy()
@@ -241,7 +240,7 @@ def calculate_indicators(df):
     return df
 
 # ==================================================
-# SCOUTING RULES (RELAXED & LOGGING)
+# SCOUTING RULES (LOG & RELAXED RSI)
 # ==================================================
 def analyze_pair(market):
     pair = market["pair"]
@@ -254,44 +253,62 @@ def analyze_pair(market):
     values = [current["atr"], current["rsi"], current["bb_mid"], current["volume_sma"], current["atr_avg"], trend["adx"]]
     if not np.all(np.isfinite(values)): return None
 
-    if trend["adx"] > 25: return None
+    if trend["adx"] > 25: 
+        return None
 
     window = candles5.tail(48)
     support, resistance = float(window["low"].min()), float(window["high"].max())
     if support <= 0 or resistance <= support: return None
 
     range_pct = (resistance - support) / support * 100
-    if not 1.5 <= range_pct <= 8.0: return None
+    if not 1.5 <= range_pct <= 8.0: 
+        return None
 
     atr_ratio = current["atr"] / current["atr_avg"]
-    if not 0.6 <= atr_ratio <= 1.5: return None
+    if not 0.6 <= atr_ratio <= 1.5: 
+        return None
 
     if current["volume_sma"] <= 0: return None
     volume_ratio = current["volume"] / current["volume_sma"]
-    if not 0.5 <= volume_ratio <= 2.0: return None
+    if not 0.5 <= volume_ratio <= 2.0: 
+        return None
 
     if len(m5) < 25: return None
     bb_mid_change_pct = abs((m5.iloc[-1]["bb_mid"] - m5.iloc[-5]["bb_mid"]) / m5.iloc[-5]["bb_mid"]) * 100
-    if bb_mid_change_pct > 0.5: return None
+    if bb_mid_change_pct > 0.5: 
+        return None
 
-    if current["bb_width"] > previous["bb_width"] * 1.25: return None
+    if current["bb_width"] > previous["bb_width"] * 1.25: 
+        return None
 
     entry = market["ask"]
     if entry <= 0: return None
 
     range_position = (entry - support) / (resistance - support)
-    rsi_cross_up = previous["rsi"] <= 40 and current["rsi"] > 40
+    
+    # LOGIKA BARU: RSI harus di bawah 45 (Area oversold) & candle hijau
+    rsi_oversold = current["rsi"] < 45 
     bullish_candle = current["close"] > current["open"]
 
-    if range_position > 0.30: return None
-    if not rsi_cross_up: return None
-    if not bullish_candle: return None
+    if range_position > 0.30: 
+        logging.info(f"[SKIP] {pair}: Harga terlalu jauh dari support (Posisi: {range_position:.2f})")
+        return None
+
+    if not rsi_oversold: 
+        logging.info(f"[SKIP] {pair}: RSI terlalu tinggi ({current['rsi']:.2f})")
+        return None
+        
+    if not bullish_candle: 
+        logging.info(f"[SKIP] {pair}: Candle tidak hijau (Bearish)")
+        return None
 
     stop_loss = entry * (1 - STOP_LOSS_PCT)
     take_profit_1 = entry * (1 + TAKE_PROFIT_1_PCT)
     take_profit_2 = entry * (1 + TAKE_PROFIT_2_PCT)
 
-    if resistance < take_profit_1: return None
+    if resistance < take_profit_1: 
+        logging.info(f"[SKIP] {pair}: Resistance terlalu dekat untuk TP1")
+        return None
 
     return {
         "pair": pair, "name": market["coin"].get("name", market["base"]), "volume": market["volume"], "spread": market["spread_pct"],
@@ -349,7 +366,7 @@ def main():
                 logging.info("Sinyal ditemukan: %s", signal["pair"])
         except Exception as exc:
             logging.warning("%s gagal dianalisis: %s", market["pair"], exc)
-        time.sleep(1)
+        time.sleep(0.5) # Jeda dipercepat sedikit karena jadwal 5 menit
 
     signals.sort(key=lambda x: (x["rr2"], x["volume"], -x["spread"]), reverse=True)
 
