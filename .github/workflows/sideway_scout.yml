@@ -2,8 +2,8 @@ name: Crypto Scout Bot
 
 on:
   schedule:
-    # Berjalan otomatis setiap 30 menit
-    - cron: '0,30 * * * *'
+    # Berjalan otomatis setiap 5 menit
+    - cron: '*/5 * * * *'
   workflow_dispatch: 
 
 jobs:
