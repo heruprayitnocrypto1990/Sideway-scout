@@ -28,7 +28,8 @@ jobs:
         env:
           # DRY_RUN dibuat false agar benar-benar kirim ke Discord
           DRY_RUN: "false"
-          # Mengambil dari GitHub Secrets (Kita atur di Langkah 4)
+          # Mengambil dari GitHub Secrets
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python scout.py
+        # PERHATIKAN BARIS INI: Memanggil nama file Python Anda yang benar
+        run: python sideway-scout.py 
